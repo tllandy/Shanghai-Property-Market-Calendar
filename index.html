@@ -8,14 +8,12 @@
 <style>
 body { font-family: Arial, sans-serif; margin:0; background:#f7f7f7; padding-bottom:60px; }
 header { background: #f2f6ff; padding: 15px; text-align:center; font-size:20px;}
-#calendar-container { width: 100%; margin:20px; }
 #calendar { width:100%; background:white; border-radius:8px; padding:10px;}
 #calendar table { width:100%; border-collapse: collapse; text-align:center;}
 #calendar th, #calendar td { padding:6px;}
 #calendar td { height:50px; vertical-align:top;}
 .nav-btn { cursor:pointer; margin:0 10px; color:#1990ff; user-select:none;}
 .day-num { font-weight:bold; font-size:14px; }
-.week-num { font-weight:bold; font-size:12px; }
 .day-val { font-size:12px; margin-top:4px; color: green; font-weight:bold; } /* 成交量绿色 */
 .total-month { text-align:right; margin: 5px 0; font-weight:bold; color:#333; }
 .today-circle {
@@ -28,19 +26,19 @@ header { background: #f2f6ff; padding: 15px; text-align:center; font-size:20px;}
     font-size: 13px;
     line-height: 22px;
 }
-#chart-container { width:100%; margin:20px 0; background:white; border-radius:8px; padding:10px;}
+#chart-container { background:white; border-radius:8px; padding:10px; margin-top:15px;}
 #chart { width:100%; height:300px; }
 .tab-nav {
     position: fixed;
     bottom: 0;
-    left: 20px;
-    width: 100%;
-    display: flex;
+    left: 50%;
+    transform: translateX(-50%);
     background: #fff;
     border-top: 2px solid #1990ff;
     border-radius:8px 8px 0 0;
     overflow:hidden;
     box-shadow:0 -2px 5px rgba(0,0,0,0.1);
+    display: flex;
 }
 .tab-nav div {
     flex:1;
@@ -53,7 +51,58 @@ header { background: #f2f6ff; padding: 15px; text-align:center; font-size:20px;}
     transition: 0.3s;
 }
 .tab-nav .active { background:#1990ff; color:white; }
-.week-sum .day-num { font-size:12px; margin-top:4px; color: green; font-weight:bold; } /* 周合计绿色，和成交量一致 */
+.week-sum .day-num,
+.week-sum .day-val { font-size:12px; margin-top:4px; color: green; font-weight:bold; }
+
+/* PC端保持420px居中 */
+@media screen and (min-width: 769px) {
+    #calendar-container,
+    #chart-container,
+    .tab-nav {
+        max-width: 420px;
+        width: 100%;
+        margin: auto;
+    }
+}
+
+/* 手机端全屏 + 高度增加 + 字体变大 */
+@media screen and (max-width: 768px) {
+    #calendar-container,
+    #chart-container,
+    .tab-nav {
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        left: 0;
+        transform: none;
+    }
+    /* 日历单元格高度增加 */
+    #calendar td {
+        height: 70px; /* 原50px */
+    }
+    /* 日期数字更大 */
+    .day-num {
+        font-size: 18px;  /* 原14px */
+    }
+    /* 成交量数字更大 */
+    .day-val {
+        font-size: 14px; /* 原12px */
+    }
+    /* 周合计数字字号同步放大 */
+    .week-sum .day-num,
+    .week-sum .day-val {
+        font-size: 14px;
+    }
+    /* 图表区域间距增加 */
+    #chart-container {
+        padding: 15px;
+    }
+    /* 底部导航按钮更高、更大字体 */
+    .tab-nav div {
+        padding: 16px;
+        font-size: 16px;
+    }
+}
 </style>
 </head>
 <body>
@@ -93,7 +142,8 @@ function switchTab(type) {
 
 function loadExcel() {
     const fileName = currentType === 'old' ? 'oldhousedata.xlsx' : 'newhousedata.xlsx';
-    fetch(fileName)
+    const url = `${fileName}?v=${Date.now()}`; // 防缓存
+    fetch(url)
     .then(res => {
         if (!res.ok) throw new Error(`找不到 ${fileName}`);
         return res.arrayBuffer();
@@ -116,7 +166,6 @@ function loadExcel() {
         });
 
         monthKeys.sort();
-
         const now = new Date();
         const nowKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
         currentMonthKey = monthKeys.includes(nowKey) ? nowKey : monthKeys[0];
@@ -179,11 +228,8 @@ function renderCalendar() {
         monthTotal += val || 0;
         weekSum += val || 0;
 
-        //当天高亮
         let dayDisplay;
-        if (dateObj.getFullYear() === today.getFullYear() &&
-            dateObj.getMonth() === today.getMonth() &&
-            dateObj.getDate() === today.getDate()) {
+        if (sameDay(dateObj, today)) {
             dayDisplay = `<span class="today-circle">${d}</span>`;
         } else {
             dayDisplay = `${d}`;
@@ -199,7 +245,7 @@ function renderCalendar() {
                 let rem = 7 - ((dayOfWeek + d -1) % 7);
                 for (let i=0; i<rem; i++) html += `<td></td>`;
             }
-            html += `<td class="week-sum"><div class="week-num">${weekSum}</div></td></tr>`; 
+            html += `<td class="week-sum"><div class="day-val">${weekSum}</div></td></tr>`; 
             if (d !== lastDay.getDate()) html += "<tr>";
             weekSum = 0;
         }
@@ -253,4 +299,3 @@ loadExcel();
 </script>
 </body>
 </html>
-
