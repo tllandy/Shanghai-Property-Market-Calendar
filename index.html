@@ -2,31 +2,34 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>楼市日历 - 升级版Tab底部</title>
+<title>楼市日历 - 多sheet支持</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 <style>
 body { font-family: Arial, sans-serif; margin:0; background:#f7f7f7; padding-bottom:60px; }
-
-/* 月份切换头部 */
 header { background: #f2f6ff; padding: 15px; text-align:center; font-size:20px;}
-
 #calendar-container { max-width: 420px; margin:auto; }
 #calendar { width:100%; background:white; border-radius:8px; padding:10px;}
 #calendar table { width:100%; border-collapse: collapse; text-align:center;}
 #calendar th, #calendar td { padding:6px;}
 #calendar td { height:50px; vertical-align:top;}
-.green { color: green; }
-.blue { color: white; background:#1990ff; border-radius:8px; }
 .nav-btn { cursor:pointer; margin:0 10px; color:#1990ff; user-select:none;}
 .day-num { font-weight:bold; font-size:14px; }
-.day-val { font-size:12px; margin-top:4px; }
+.week-num { font-weight:bold; font-size:12px; }
+.day-val { font-size:12px; margin-top:4px; color: green; font-weight:bold; } /* 成交量绿色 */
 .total-month { text-align:right; margin: 5px 0; font-weight:bold; color:#333; }
-
+.today-circle {
+    display: inline-block;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background-color: blue;
+    color: white;
+    font-size: 13px;
+    line-height: 22px;
+}
 #chart-container { max-width:420px; margin:15px auto; background:white; border-radius:8px; padding:10px;}
 #chart { width:100%; height:300px; }
-
-/* 底部固定Tab导航 */
 .tab-nav {
     position: fixed;
     bottom: 0;
@@ -51,48 +54,37 @@ header { background: #f2f6ff; padding: 15px; text-align:center; font-size:20px;}
     color:#1990ff;
     transition: 0.3s;
 }
-.tab-nav .active {
-    background:#1990ff;
-    color:white;
-}
-.week-sum .day-num {
-    font-weight:bold;
-    font-size:14px;
-    color:#333; /* 你可以改成和日期数字一样的绿色或蓝色 */
-}
-
+.tab-nav .active { background:#1990ff; color:white; }
+.week-sum .day-num { font-size:12px; margin-top:4px; color: green; font-weight:bold; } /* 周合计绿色，和成交量一致 */
 </style>
 </head>
 <body>
 
-<!-- 月份切换 -->
 <header>
   <span class="nav-btn" onclick="prevMonth()">◀</span>
   <span id="monthTitle"></span>
   <span class="nav-btn" onclick="nextMonth()">▶</span>
 </header>
 
-<!-- 日历部分 -->
 <div id="calendar-container">
     <div class="total-month" id="monthTotal"></div>
     <div id="calendar"></div>
 </div>
 
-<!-- 图表部分 -->
 <div id="chart-container">
     <div id="chart"></div>
 </div>
 
-<!-- 底部Tab导航 -->
 <div class="tab-nav">
     <div id="tab-old" class="active" onclick="switchTab('old')">二手房</div>
     <div id="tab-new" onclick="switchTab('new')">新房</div>
 </div>
 
 <script>
-let excelData = [];
-let currentDate = new Date(2025, 8, 1); // 默认显示9月
-let currentType = 'old'; // 默认二手房
+let allMonthsData = {};
+let monthKeys = [];
+let currentMonthKey = '';
+let currentType = 'old';
 
 function switchTab(type) {
     currentType = type;
@@ -103,26 +95,41 @@ function switchTab(type) {
 
 function loadExcel() {
     const fileName = currentType === 'old' ? 'oldhousedata.xlsx' : 'newhousedata.xlsx';
-    fetch(fileName).then(res => {
+    fetch(fileName)
+    .then(res => {
         if (!res.ok) throw new Error(`找不到 ${fileName}`);
         return res.arrayBuffer();
-    }).then(data => {
+    })
+    .then(data => {
         const workbook = XLSX.read(data, {type:'array'});
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet);
+        allMonthsData = {};
+        monthKeys = [];
 
-        excelData = json.map(row => {
-            let rawDate = row.date || row.data || row.日期;
-            let rawValue = row.value || row.成交套数 || row.套数;
-            let dateObj = parseExcelDate(rawDate);
-            return { date: dateObj, value: Number(rawValue) };
+        workbook.SheetNames.forEach(name => {
+            const sheet = workbook.Sheets[name];
+            const json = XLSX.utils.sheet_to_json(sheet);
+            const parsed = json.map(row => {
+                let rawDate = row.date || row.data || row.日期;
+                let rawValue = row.value || row.成交套数 || row.套数;
+                return { date: parseExcelDate(rawDate), value: Number(rawValue) };
+            });
+            allMonthsData[name] = parsed;
+            monthKeys.push(name);
         });
+
+        monthKeys.sort();
+
+        const now = new Date();
+        const nowKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+        currentMonthKey = monthKeys.includes(nowKey) ? nowKey : monthKeys[0];
 
         renderCalendar();
         renderChart();
-    }).catch(err => {
+    })
+    .catch(err => {
         console.warn('读取 Excel 出错:', err);
-        excelData = [];
+        allMonthsData = {};
+        monthKeys = [];
         renderCalendar();
         renderChart();
     });
@@ -151,80 +158,70 @@ function sameDay(d1, d2) {
            d1.getDate() === d2.getDate();
 }
 
-// 渲染日历
 function renderCalendar() {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month+1, 0);
-
-    document.getElementById('monthTitle').innerText = `${year}年${month+1}月`;
+    const data = allMonthsData[currentMonthKey] || [];
+    const [year, month] = currentMonthKey.split('-').map(Number);
+    const firstDay = new Date(year, month-1, 1);
+    const lastDay = new Date(year, month, 0);
+    document.getElementById('monthTitle').innerText = `${year}年${month}月`;
 
     let monthTotal = 0;
     let html = "<table><tr><th>一</th><th>二</th><th>三</th><th>四</th><th>五</th><th>六</th><th>日</th><th>周合计</th></tr><tr>";
 
     let dayOfWeek = (firstDay.getDay() || 7);
     let weekSum = 0;
+    const today = new Date();
 
-    for (let i=1; i<dayOfWeek; i++) {
-        html += "<td></td>";
-    }
+    for (let i=1; i<dayOfWeek; i++) html += "<td></td>";
 
-for (let d=1; d<=lastDay.getDate(); d++) {
-    const dateObj = new Date(year, month, d);
-    const record = excelData.find(r => sameDay(r.date, dateObj));
-    let val = record ? record.value : null;
-    monthTotal += val || 0;
-    weekSum += val || 0;
+    for (let d=1; d<=lastDay.getDate(); d++) {
+        const dateObj = new Date(year, month-1, d);
+        const record = data.find(r => sameDay(r.date, dateObj));
+        let val = record ? record.value : null;
+        monthTotal += val || 0;
+        weekSum += val || 0;
 
-    let cls = '';
-    if (val != null) {
-        if (val >= 800) cls = 'blue';
-        else cls = 'green';
-    }
-    html += `<td class="${cls}">
-                <div class="day-num">${d}</div>
-                ${val ? `<div class="day-val">${val}</div>` : ''}
-             </td>`;
-
-    // 如果是周日或最后一天
-    if ((dayOfWeek + d -1)%7===0 || d === lastDay.getDate()) {
-
-        // 检查最后一周是否需要补齐空格
-        if (d === lastDay.getDate() && (dayOfWeek + d -1)%7 !== 0) {
-            let remaining = 7 - ((dayOfWeek + d -1) % 7);
-            for (let i=0; i<remaining; i++) {
-                html += `<td></td>`;
-            }
+        //当天高亮
+        let dayDisplay;
+        if (dateObj.getFullYear() === today.getFullYear() &&
+            dateObj.getMonth() === today.getMonth() &&
+            dateObj.getDate() === today.getDate()) {
+            dayDisplay = `<span class="today-circle">${d}</span>`;
+        } else {
+            dayDisplay = `${d}`;
         }
 
-        // 周合计单元格
-        html += `<td class="week-sum"><div class="day-num">${weekSum}</div></td></tr>`;
-        
-        if (d !== lastDay.getDate()) html += "<tr>";
-        weekSum = 0;
-    }
-}
+        html += `<td>
+                    <div class="day-num">${dayDisplay}</div>
+                    ${val ? `<div class="day-val">${val}</div>` : ''}
+                 </td>`;
 
+        if ((dayOfWeek + d -1)%7===0 || d === lastDay.getDate()) {
+            if (d === lastDay.getDate() && (dayOfWeek + d -1)%7 !== 0) {
+                let rem = 7 - ((dayOfWeek + d -1) % 7);
+                for (let i=0; i<rem; i++) html += `<td></td>`;
+            }
+            html += `<td class="week-sum"><div class="week-num">${weekSum}</div></td></tr>`; 
+            if (d !== lastDay.getDate()) html += "<tr>";
+            weekSum = 0;
+        }
+    }
 
     html += "</table>";
-
     document.getElementById('calendar').innerHTML = html;
     document.getElementById('monthTotal').innerText = `本月累计成交量：${monthTotal}`;
 }
 
-// 渲染图表
 function renderChart() {
     let chart = echarts.init(document.getElementById('chart'));
+
     let grouped = {};
-    excelData.forEach(r => {
-        let key = `${r.date.getFullYear()}-${(r.date.getMonth()+1).toString().padStart(2,'0')}`;
-        grouped[key] = (grouped[key]||0) + r.value;
+    Object.keys(allMonthsData).forEach(key => {
+        grouped[key] = allMonthsData[key].reduce((sum, r) => sum + r.value, 0);
     });
+
     let months = Object.keys(grouped).sort();
     let values = months.map(m => grouped[m]);
-
-    // 环比涨幅（相邻月份增长率）
     let momRates = values.map((v, i) => i === 0 ? 0 : (((v - values[i-1]) / values[i-1]) * 100).toFixed(1));
 
     let option = {
@@ -238,36 +235,23 @@ function renderChart() {
             { type:'value', name:'环比(%)', axisLabel:{ formatter:'{value} %' } }
         ],
         series:[
-            {
-                name:'成交量',
-                type:'bar',
-                data:values,
-                itemStyle:{color:'#4b8bf4'}
-            },
-            {
-                name:'环比涨幅',
-                type:'line',
-                yAxisIndex:1,
-                data:momRates,
-                itemStyle:{color:'#ff9900'},
-                smooth:true
-            }
+            { name:'成交量', type:'bar', data:values, itemStyle:{color:'#4b8bf4'} },
+            { name:'环比涨幅', type:'line', yAxisIndex:1, data:momRates, itemStyle:{color:'#ff9900'}, smooth:true }
         ]
     };
     chart.setOption(option);
 }
 
 function prevMonth(){
-    currentDate.setMonth(currentDate.getMonth()-1);
-    renderCalendar();
+    let idx = monthKeys.indexOf(currentMonthKey);
+    if (idx > 0) { currentMonthKey = monthKeys[idx-1]; renderCalendar(); renderChart(); }
 }
 function nextMonth(){
-    currentDate.setMonth(currentDate.getMonth()+1);
-    renderCalendar();
+    let idx = monthKeys.indexOf(currentMonthKey);
+    if (idx < monthKeys.length - 1) { currentMonthKey = monthKeys[idx+1]; renderCalendar(); renderChart(); }
 }
 
 loadExcel();
 </script>
-
 </body>
 </html>
